@@ -175,6 +175,7 @@ model Item {
 model Table {
   id       String  @id @default(cuid())
   label    String
+  code     String
   isActive Boolean @default(true)
 
   tenantId String
@@ -184,5 +185,6 @@ model Table {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, label])
+  @@unique([tenantId, code])
   @@index([tenantId])
 }

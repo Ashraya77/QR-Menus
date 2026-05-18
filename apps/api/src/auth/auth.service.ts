@@ -5,6 +5,7 @@ import { PrismaService } from '../database/prisma.service';
 import { PasswordService } from './password.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { buildTenantQrUrl } from '../../common/utils/qr-url';
 
 const REFRESH_TOKEN_DAYS = 30;
 const REFRESH_TOKEN_BYTES = 64;
@@ -106,6 +107,7 @@ export class AuthService {
         id: membership.tenant.id,
         name: membership.tenant.name,
         slug: membership.tenant.slug,
+        qrUrl: buildTenantQrUrl(membership.tenant.slug),
         role: membership.role,
         status: membership.status,
       })),

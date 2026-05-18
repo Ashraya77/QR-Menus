@@ -17,6 +17,7 @@ import { PasswordService } from '../auth/password.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateTenantMemberDto } from './dto/create-tenant-member.dto';
 import { JwtUser } from '../auth/strategies/jwt.strategy';
+import { buildTenantQrUrl } from '../../common/utils/qr-url';
 
 @Injectable()
 export class TenantsService {
@@ -66,7 +67,7 @@ export class TenantsService {
       });
 
       return {
-        tenant: result.tenant,
+        tenant: this.withQrUrl(result.tenant),
         owner: this.publicUser(result.owner),
       };
     } catch (error) {
@@ -166,6 +167,16 @@ export class TenantsService {
     }
   }
 
+  getCurrentTenant(tenant: {
+    id: string;
+    name: string;
+    slug: string;
+    logoUrl: string | null;
+    status: TenantStatus;
+  }) {
+    return this.withQrUrl(tenant);
+  }
+
   private toSlug(value: string) {
     return value
       .trim()
@@ -185,6 +196,13 @@ export class TenantsService {
       name: user.name,
       email: user.email,
       systemRole: user.systemRole,
+    };
+  }
+
+  private withQrUrl<T extends { slug: string }>(tenant: T) {
+    return {
+      ...tenant,
+      qrUrl: buildTenantQrUrl(tenant.slug),
     };
   }
 
