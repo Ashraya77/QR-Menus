@@ -1,0 +1,1 @@
+// Shared separator UI placeholder.

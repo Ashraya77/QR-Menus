@@ -1,0 +1,1 @@
+// Menus feature component placeholder.

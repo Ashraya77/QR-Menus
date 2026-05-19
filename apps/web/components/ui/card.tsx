@@ -1,0 +1,1 @@
+// Shared card UI placeholder.

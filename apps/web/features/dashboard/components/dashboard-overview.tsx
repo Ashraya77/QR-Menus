@@ -1,0 +1,1 @@
+// Dashboard feature component placeholder.

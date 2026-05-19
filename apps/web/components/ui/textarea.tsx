@@ -1,0 +1,1 @@
+// Shared textarea UI placeholder.

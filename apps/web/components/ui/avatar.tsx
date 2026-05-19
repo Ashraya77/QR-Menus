@@ -1,0 +1,1 @@
+// Shared avatar UI placeholder.

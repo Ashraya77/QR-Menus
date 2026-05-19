@@ -1,0 +1,1 @@
+// Pagination type placeholder.

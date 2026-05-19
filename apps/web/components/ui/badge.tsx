@@ -1,0 +1,1 @@
+// Shared badge UI placeholder.

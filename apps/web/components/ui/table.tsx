@@ -1,0 +1,1 @@
+// Shared table UI placeholder.

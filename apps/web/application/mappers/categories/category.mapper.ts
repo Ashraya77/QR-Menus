@@ -1,0 +1,1 @@
+// Category mapper placeholder.

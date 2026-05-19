@@ -1,0 +1,1 @@
+// Shared skeleton UI placeholder.

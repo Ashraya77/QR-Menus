@@ -1,6 +1,15 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiHeader,
   ApiOperation,
   ApiParam,
@@ -11,6 +20,8 @@ import { TenantRole } from '@prisma/client';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { TenantRoles } from '../../common/decorators/tenant-roles.decorator';
+import { CreateMenuDto } from './dto/create-menu.dto';
+import { UpdateMenuDto } from './dto/update-menu.dto';
 import { MenusService } from './menus.service';
 
 @ApiTags('Menus')
@@ -80,5 +91,55 @@ export class MenusController {
   @Get('menus')
   getTenantMenus(@CurrentTenant() tenant: { id: string }) {
     return this.menus.getTenantMenus(tenant.id);
+  }
+
+  @TenantRoles(TenantRole.OWNER, TenantRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'X-Tenant-Id',
+    description: 'Selected tenant id.',
+    required: true,
+  })
+  @ApiOperation({ summary: 'Create a menu for selected tenant' })
+  @ApiBody({ type: CreateMenuDto })
+  @Post('menus')
+  createMenu(
+    @CurrentTenant() tenant: { id: string },
+    @Body() dto: CreateMenuDto,
+  ) {
+    return this.menus.createMenu(tenant.id, dto);
+  }
+
+  @TenantRoles(TenantRole.OWNER, TenantRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'X-Tenant-Id',
+    description: 'Selected tenant id.',
+    required: true,
+  })
+  @ApiOperation({ summary: 'Update a menu for selected tenant' })
+  @ApiParam({ name: 'id', example: 'menu_123' })
+  @ApiBody({ type: UpdateMenuDto })
+  @Put('menus/:id')
+  updateMenu(
+    @CurrentTenant() tenant: { id: string },
+    @Param('id') id: string,
+    @Body() dto: UpdateMenuDto,
+  ) {
+    return this.menus.updateMenu(tenant.id, id, dto);
+  }
+
+  @TenantRoles(TenantRole.OWNER, TenantRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'X-Tenant-Id',
+    description: 'Selected tenant id.',
+    required: true,
+  })
+  @ApiOperation({ summary: 'Delete a menu for selected tenant' })
+  @ApiParam({ name: 'id', example: 'menu_123' })
+  @Delete('menus/:id')
+  deleteMenu(@CurrentTenant() tenant: { id: string }, @Param('id') id: string) {
+    return this.menus.deleteMenu(tenant.id, id);
   }
 }

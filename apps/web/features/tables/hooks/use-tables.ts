@@ -1,0 +1,1 @@
+// Tables feature hook placeholder.

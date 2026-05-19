@@ -1,0 +1,1 @@
+// Shared select UI placeholder.
