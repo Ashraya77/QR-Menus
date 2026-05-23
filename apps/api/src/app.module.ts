@@ -10,6 +10,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { SystemRoleGuard } from '../common/guards/system-role.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { TenantRoleGuard } from '../common/guards/tenant-role.guard';
+import { SubscriptionGuard } from '../common/guards/subscription.guard';
+import { ApiKeyGuard } from '../common/guards/api-key.guard';
 
 @Module({
   imports: [AuthModule, TenantsModule, MenusModule, TablesModule],
@@ -31,6 +33,14 @@ import { TenantRoleGuard } from '../common/guards/tenant-role.guard';
     {
       provide: APP_GUARD,
       useClass: TenantRoleGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SubscriptionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ApiKeyGuard,
     },
   ],
 })

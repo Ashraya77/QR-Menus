@@ -25,7 +25,7 @@ export class TenantRoleGuard implements CanActivate {
 
     if (user?.systemRole === SystemRole.SUPER_ADMIN) return true;
 
-    const membership = request.tenantMember;
+    const membership = request.membership ?? request.tenantMember;
 
     if (!membership || !requiredRoles.includes(membership.role)) {
       throw new ForbiddenException('Insufficient tenant role');

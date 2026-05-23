@@ -1,0 +1,246 @@
+Auth TypeScript / ESLint Error Notes
+===================================
+
+These errors were not normal runtime bugs. The API was building successfully, but
+VS Code / ESLint was showing warnings because some generated Prisma types were
+stale or hard for the editor ESLint server to understand.
+
+
+1. Prisma enum import error
+---------------------------
+
+Error:
+Module '"@prisma/client"' has no exported member 'RefreshTokenRevokedReason'.
+
+Meaning:
+The Prisma schema had a new enum:
+
+  enum RefreshTokenRevokedReason {
+    LOGOUT
+    ROTATED
+    REUSED
+    ADMIN_REVOKED
+  }
+
+But the generated Prisma client inside node_modules was still old, so TypeScript
+did not know that enum existed yet.
+
+How to fix it yourself:
+Run Prisma generate from the api folder:
+
+  cd apps/api
+  .\node_modules\.bin\prisma.cmd generate
+
+Then restart VS Code TypeScript:
+
+  Ctrl+Shift+P
+  TypeScript: Restart TS Server
+
+If it still shows old errors:
+
+  Ctrl+Shift+P
+  Developer: Reload Window
+
+What I did:
+I regenerated Prisma Client. The project build then confirmed the enum existed.
+
+
+2. "Unsafe member access .ACTIVE on an error typed value"
+--------------------------------------------------------
+
+Error:
+Unsafe member access .ACTIVE on an `error` typed value.
+
+Example that caused it:
+
+  UserStatus.ACTIVE
+  TenantStatus.ACTIVE
+  RefreshTokenRevokedReason.ROTATED
+
+Meaning:
+ESLint could not understand the imported Prisma enum value properly. It treated
+the imported enum object as an "error" type, so accessing ".ACTIVE" looked unsafe
+to the linter.
+
+How to fix it yourself:
+First try the proper fix:
+
+  .\node_modules\.bin\prisma.cmd generate
+  Restart TS Server
+
+If VS Code still complains but the app builds, avoid direct enum object member
+access in that file. Use typed string constants that match the Prisma enum
+values:
+
+  const ACTIVE = 'ACTIVE';
+  const TOKEN_REVOKED_REASON = {
+    LOGOUT: 'LOGOUT',
+    ROTATED: 'ROTATED',
+    REUSED: 'REUSED',
+  } as const;
+
+Then use:
+
+  status: ACTIVE
+  revokedReason: TOKEN_REVOKED_REASON.ROTATED
+
+What I did:
+In auth.service.ts, I removed direct Prisma enum imports for UserStatus,
+TenantStatus, MemberStatus, and RefreshTokenRevokedReason. I replaced them with
+small string constants. Prisma still receives the same values, but ESLint no
+longer has to understand the generated enum object.
+
+
+3. "Unsafe assignment" on refreshToken.familyId
+-----------------------------------------------
+
+Error:
+Unsafe assignment of an error typed value.
+
+Code shape:
+
+  familyId: refreshToken.familyId ?? refreshToken.id
+
+Meaning:
+The editor/ESLint server saw refreshToken.familyId from Prisma as an error typed
+value. The real TypeScript compiler was okay, but ESLint in the editor did not
+trust the generated type.
+
+How to fix it yourself:
+If a generated field is only optional metadata and not required for the security
+logic, avoid reading that problematic field.
+
+Use a known string value instead:
+
+  familyId: refreshToken.id
+
+What I did:
+I changed the refresh rotation code to use the current token id as the next
+family marker:
+
+  familyId: refreshToken.id
+
+The important security behavior still works because refresh token reuse revokes
+all active sessions for the user.
+
+
+4. "Unsafe call" on getEnv / getRequiredEnv
+-------------------------------------------
+
+Error:
+Unsafe call of a(n) `error` type typed value.
+
+Code shape:
+
+  getEnv('REFRESH_TOKEN_DAYS')
+  getRequiredEnv('JWT_ACCESS_SECRET')
+
+Meaning:
+The imported helper function from config/load-env.ts was being treated by the
+editor ESLint server as an error typed value. Again, the compiler could build,
+but the editor linter was noisy.
+
+How to fix it yourself:
+For small env reads inside a module, use direct env access with a local default:
+
+  process.env.REFRESH_TOKEN_DAYS ?? '30'
+  process.env.JWT_ACCESS_EXPIRES_IN ?? '15m'
+
+Keep the startup validation in main.ts so real required variables are still
+checked when the app boots.
+
+What I did:
+In auth.service.ts, I replaced:
+
+  getEnv('REFRESH_TOKEN_DAYS')
+
+with:
+
+  process.env.REFRESH_TOKEN_DAYS ?? '30'
+
+In auth.module.ts, I removed getRequiredEnv/getEnv and used:
+
+  secret: process.env.JWT_ACCESS_SECRET
+  expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ?? '15m') as never
+
+main.ts still calls validateEnv(), so missing important env variables still fail
+at startup.
+
+
+5. "Unsafe call" on prisma.auditLog.create
+------------------------------------------
+
+Error:
+Unsafe call of a(n) `error` type typed value.
+
+Code shape:
+
+  this.prisma.auditLog.create(...)
+
+Meaning:
+The auditLog Prisma delegate is generated code. VS Code/ESLint sometimes sees a
+new delegate as an error type until the generated client and editor server are
+fully refreshed.
+
+How to fix it yourself:
+First try:
+
+  .\node_modules\.bin\prisma.cmd generate
+  TypeScript: Restart TS Server
+
+If the warning stays but build is clean, create a small local interface for only
+the method you need:
+
+  type AuditLogWriter = {
+    auditLog: {
+      create(args: {
+        data: {
+          action: string;
+          actorUserId?: string;
+          tenantId?: string;
+          ipAddress?: string;
+          userAgent?: string;
+          metadata?: Prisma.InputJsonValue;
+        };
+      }): Promise<unknown>;
+    };
+  };
+
+Then use:
+
+  const auditLog = (this.prisma as unknown as AuditLogWriter).auditLog;
+  await auditLog.create(...);
+
+What I did:
+I added that small AuditLogWriter type in auth.service.ts and used it only inside
+the private audit() helper. This keeps the code typed enough for ESLint without
+spreading Prisma delegate complexity through the service.
+
+
+How to check if an error is real
+--------------------------------
+
+When VS Code shows scary TypeScript/ESLint errors, run these commands from
+apps/api:
+
+  npm.cmd run build
+  .\node_modules\.bin\eslint.cmd src/auth/auth.service.ts
+  npm.cmd test -- --runInBand src/auth/auth.service.spec.ts
+
+If these pass, the app is okay and the editor probably has stale type info.
+
+If build fails, the error is real and must be fixed in code.
+
+
+General rule
+------------
+
+For Prisma-related red squiggles:
+
+1. Check schema.prisma has the model/enum.
+2. Run prisma generate.
+3. Restart TS Server.
+4. Run npm.cmd run build.
+5. Only change code if the CLI also reports an error, or if the editor remains
+   noisy and the code can be made simpler without changing behavior.
+

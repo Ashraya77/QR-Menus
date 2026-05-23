@@ -1,15 +1,31 @@
-import { Body, Controller, Post } from '@nestjs/common';
 import {
-  ApiBody,
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiCookieAuth,
   ApiOperation,
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { AuthRateLimitGuard } from '../../common/guards/auth-rate-limit.guard';
+import { getEnv } from '../config/load-env';
+
+const REFRESH_COOKIE_NAME = 'qr_refresh_token';
+const REFRESH_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -17,24 +33,25 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Login platform/admin user',
     description:
-      'Returns an access token, refresh token, user profile, and tenant memberships.',
+      'Sets the refresh token in an httpOnly cookie and returns an access token, user profile, and active tenant memberships.',
   })
-  @ApiBody({ type: LoginDto })
   @ApiResponse({
-    status: 201,
+    status: 200,
     description: 'Authenticated successfully.',
     schema: {
       example: {
         accessToken: 'jwt-access-token',
-        refreshToken: 'opaque-refresh-token',
         user: {
           id: 'usr_123',
           name: 'Platform Admin',
           email: 'admin@example.com',
           systemRole: 'USER',
+          status: 'ACTIVE',
         },
         tenants: [
           {
@@ -51,46 +68,131 @@ export class AuthController {
   })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials.' })
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    // Refresh tokens are returned in JSON for now. This is the boundary where
-    // httpOnly secure cookie support can be added later.
-    return this.auth.login(dto);
+  async login(
+    @Body() dto: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.auth.login(dto);
+    this.setRefreshCookie(response, result.refreshToken);
+    return this.withoutRefreshToken(result);
   }
 
   @Public()
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Rotate refresh token',
     description:
-      'Accepts an opaque refresh token, revokes it, and returns a new access/refresh token pair.',
+      'Reads the httpOnly refresh-token cookie, revokes it, sets a new cookie, and returns a new access token.',
   })
-  @ApiBody({ type: RefreshTokenDto })
+  @ApiCookieAuth(REFRESH_COOKIE_NAME)
   @ApiResponse({
-    status: 201,
+    status: 200,
     description: 'Token rotated successfully.',
     schema: {
       example: {
         accessToken: 'new-jwt-access-token',
-        refreshToken: 'new-opaque-refresh-token',
       },
     },
   })
   @ApiUnauthorizedResponse({ description: 'Invalid refresh token.' })
   @Post('refresh')
-  refresh(@Body() dto: RefreshTokenDto) {
-    return this.auth.refresh(dto);
+  async refresh(
+    @Body() dto: Partial<RefreshTokenDto>,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const rawRefreshToken = this.getRefreshToken(request, dto);
+    const result = await this.auth.refresh(rawRefreshToken, {
+      ipAddress: request.ip,
+      userAgent: request.get('user-agent'),
+    });
+
+    this.setRefreshCookie(response, result.refreshToken);
+    return this.withoutRefreshToken(result);
   }
 
   @Public()
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout by revoking refresh token' })
-  @ApiBody({ type: RefreshTokenDto })
+  @ApiCookieAuth(REFRESH_COOKIE_NAME)
   @ApiResponse({
-    status: 201,
+    status: 200,
     description: 'Refresh token revoked.',
     schema: { example: { message: 'Logged out successfully' } },
   })
   @ApiUnauthorizedResponse({ description: 'Invalid refresh token.' })
   @Post('logout')
-  logout(@Body() dto: RefreshTokenDto) {
-    return this.auth.logout(dto);
+  async logout(
+    @Body() dto: Partial<RefreshTokenDto>,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const rawRefreshToken = this.getRefreshToken(request, dto, false);
+    const result = await this.auth.logout(rawRefreshToken);
+    this.clearRefreshCookie(response);
+    return result;
+  }
+
+  private getRefreshToken(
+    request: Request,
+    dto: Partial<RefreshTokenDto>,
+    required = true,
+  ) {
+    const fromCookie = this.parseCookies(request.headers.cookie ?? '')[
+      REFRESH_COOKIE_NAME
+    ];
+    const token = fromCookie ?? dto.refreshToken;
+
+    if (!token && required) {
+      throw new UnauthorizedException('Refresh token cookie is required');
+    }
+
+    return token;
+  }
+
+  private parseCookies(header: string) {
+    return header.split(';').reduce<Record<string, string>>((cookies, part) => {
+      const separatorIndex = part.indexOf('=');
+
+      if (separatorIndex === -1) return cookies;
+
+      const key = part.slice(0, separatorIndex).trim();
+      const value = part.slice(separatorIndex + 1).trim();
+
+      if (key) {
+        cookies[key] = decodeURIComponent(value);
+      }
+
+      return cookies;
+    }, {});
+  }
+
+  private setRefreshCookie(response: Response, refreshToken: string) {
+    response.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+      httpOnly: true,
+      secure: getEnv('NODE_ENV') === 'production',
+      sameSite: 'lax',
+      path: '/auth',
+      maxAge: REFRESH_TOKEN_MAX_AGE_MS,
+      domain: process.env.COOKIE_DOMAIN || undefined,
+    });
+  }
+
+  private clearRefreshCookie(response: Response) {
+    response.clearCookie(REFRESH_COOKIE_NAME, {
+      httpOnly: true,
+      secure: getEnv('NODE_ENV') === 'production',
+      sameSite: 'lax',
+      path: '/auth',
+      domain: process.env.COOKIE_DOMAIN || undefined,
+    });
+  }
+
+  private withoutRefreshToken<T extends { refreshToken: string }>(result: T) {
+    const { refreshToken: _refreshToken, ...publicResult } = result;
+    return publicResult;
   }
 }

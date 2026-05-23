@@ -14,33 +14,64 @@ model User {
   email        String     @unique
   passwordHash String
   systemRole   SystemRole @default(USER)
+  status       UserStatus @default(ACTIVE)
+
+  passwordChangedAt  DateTime?
+  forcePasswordReset Boolean   @default(false)
+  emailVerifiedAt    DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships    TenantMember[]
-  createdTenants Tenant[]       @relation("TenantCreatedBy")
-  refreshTokens  RefreshToken[]
+  memberships             TenantMember[]
+  createdTenants          Tenant[]                 @relation("TenantCreatedBy")
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  createdApiKeys          ApiKey[]                 @relation("ApiKeyCreatedBy")
+  sentInvitations         TenantInvitation[]       @relation("TenantInvitationInvitedBy")
+  auditLogs               AuditLog[]
 
   @@index([systemRole])
+  @@index([status])
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  tokenHash String
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                String                     @id @default(cuid())
+  tokenHash         String
+  userId            String
+  user              User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  ipAddress         String?
+  userAgent         String?
+  familyId          String?
+  revokedReason     RefreshTokenRevokedReason?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
   @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@index([userId, revokedAt])
 }
 
 enum SystemRole {
   SUPER_ADMIN
   USER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum RefreshTokenRevokedReason {
+  LOGOUT
+  ROTATED
+  REUSED
+  ADMIN_REVOKED
 }
 
 // Tenants
@@ -52,23 +83,47 @@ model Tenant {
   logoUrl String?
   status  TenantStatus @default(ACTIVE)
 
+  plan                    Plan               @default(FREE)
+  subscriptionStatus      SubscriptionStatus @default(TRIALING)
+  trialEndsAt             DateTime?
+  currentPeriodEndsAt     DateTime?
+
   createdById String?
   createdBy   User?   @relation("TenantCreatedBy", fields: [createdById], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members TenantMember[]
-  menus   Menu[]
-  tables  Table[]
+  members     TenantMember[]
+  menus       Menu[]
+  tables      Table[]
+  apiKeys     ApiKey[]
+  invitations TenantInvitation[]
+  auditLogs   AuditLog[]
 
   @@index([createdById])
   @@index([status])
+  @@index([plan])
+  @@index([subscriptionStatus])
 }
 
 enum TenantStatus {
   ACTIVE
   SUSPENDED
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
 }
 
 // Tenant Membership
@@ -104,6 +159,96 @@ enum MemberStatus {
   INVITED
   ACTIVE
   DISABLED
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String
+  keyPrefix   String
+  keyHash     String
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User      @relation("ApiKeyCreatedBy", fields: [createdById], references: [id])
+  scopes      String[]
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([keyPrefix])
+  @@index([revokedAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([usedAt])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  tokenHash String
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([usedAt])
+}
+
+model TenantInvitation {
+  id          String     @id @default(cuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email       String
+  role        TenantRole
+  tokenHash   String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  invitedById String
+  invitedBy   User       @relation("TenantInvitationInvitedBy", fields: [invitedById], references: [id])
+  createdAt   DateTime   @default(now())
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([expiresAt])
+  @@index([acceptedAt])
+  @@index([revokedAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actorUser   User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  action      String
+  targetType  String?
+  targetId    String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([tenantId])
+  @@index([action])
+  @@index([createdAt])
 }
 
 // Menus

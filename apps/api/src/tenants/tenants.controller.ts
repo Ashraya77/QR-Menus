@@ -69,6 +69,7 @@ export class TenantsController {
   @ApiOperation({ summary: 'Create tenant member' })
   @ApiParam({ name: 'tenantId', example: 'tenant_123' })
   @ApiBody({ type: CreateTenantMemberDto })
+  @TenantRoles(TenantRole.OWNER)
   @Post(':tenantId/members')
   createMember(
     @Param('tenantId') tenantId: string,
