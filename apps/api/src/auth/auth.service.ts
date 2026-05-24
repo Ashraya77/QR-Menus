@@ -225,7 +225,7 @@ export class AuthService {
 
     return { tokenId, secret };
   }
-
+  
   private async findRefreshTokenForRotation(rawRefreshToken: string) {
     const { tokenId, secret } = this.parseRefreshToken(rawRefreshToken);
     const refreshToken = await this.prisma.refreshToken.findUnique({

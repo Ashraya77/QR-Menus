@@ -41,7 +41,7 @@ Payload shape:
   type: 'access'
 }
 ```
-
+ 
 Meaning:
 The JWT proves identity, but tenant permissions still come from the database.
 

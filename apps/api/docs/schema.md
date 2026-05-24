@@ -17,7 +17,7 @@ Key fields:
 - `systemRole` is platform-level access, such as `SUPER_ADMIN`.
 - `status` lets the app disable accounts.
 - `passwordChangedAt`, `forcePasswordReset`, and `emailVerifiedAt` support future security flows.
-
+  
 Important relation:
 - A user can have many `TenantMember` records.
 
